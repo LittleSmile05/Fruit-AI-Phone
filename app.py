@@ -1,9 +1,9 @@
 import streamlit as st
-import torch
-from torchvision import models, transforms
 import numpy as np
 from PIL import Image
 import base64
+import tensorflow as tf
+from tensorflow.keras.applications.mobilenet_v2 import MobileNetV2, preprocess_input, decode_predictions
 
 # Set page config for better mobile experience
 st.set_page_config(
@@ -69,8 +69,7 @@ st.subheader("Identify fruits with your camera")
 # Load pre-trained model (MobileNet V2)
 @st.cache_resource
 def load_model():
-    model = models.mobilenet_v2(weights=models.MobileNet_V2_Weights.IMAGENET1K_V1)
-    model.eval()
+    model = tf.keras.applications.MobileNetV2(weights='imagenet')
     return model
 
 # Load model with progress indicator
@@ -78,49 +77,62 @@ with st.spinner("Loading AI model... (first run may take a moment)"):
     model = load_model()
     st.success("Model loaded successfully!")
 
-# Define fruit categories with their approximate indices
+# Define fruit categories with their WordNet IDs in ImageNet
 fruit_categories = {
-    'banana': 954,
-    'apple': 948,
-    'orange': 950,
-    'lemon': 951,
-    'pineapple': 953,
-    'strawberry': 949,
-    'pear': 956,
-    'grape': 952,
-    'watermelon': 958,
-    'mango': 957
+    'banana': 'n07753592',
+    'apple': 'n07739125',
+    'orange': 'n07747607',
+    'lemon': 'n07749582',
+    'pineapple': 'n07753275',
+    'strawberry': 'n07745940',
+    'pear': 'n07767847',
+    'grape': 'n07758680',
+    'pomegranate': 'n07768694',
+    'mango': 'n07750100'
 }
 
-# Reverse mapping for display
-idx_to_fruit = {v: k for k, v in fruit_categories.items()}
+# Reverse mapping from ImageNet IDs to fruit names
+fruit_id_map = {}
+for fruit_name, fruit_id in fruit_categories.items():
+    fruit_id_map[fruit_id] = fruit_name.capitalize()
 
-# Image transformation pipeline
-transform = transforms.Compose([
-    transforms.Resize(256),
-    transforms.CenterCrop(224),
-    transforms.ToTensor(),
-    transforms.Normalize(mean=[0.485, 0.456, 0.406], std=[0.229, 0.224, 0.225]),
-])
+# Image preprocessing function
+def preprocess_image(image):
+    img = image.resize((224, 224))
+    img_array = tf.keras.preprocessing.image.img_to_array(img)
+    img_array = preprocess_input(img_array)
+    img_array = np.expand_dims(img_array, axis=0)
+    return img_array
 
 # Create a function to predict fruit
 def predict_fruit(image, confidence_threshold=0.2):
     img = Image.fromarray(image) if isinstance(image, np.ndarray) else image
-    img_t = transform(img)
-    batch_t = torch.unsqueeze(img_t, 0)
+    img = img.convert('RGB')
     
-    with torch.no_grad():
-        output = model(batch_t)
+    # Preprocess the image
+    img_array = preprocess_image(img)
     
-    # Get top probabilities and indices
-    probabilities = torch.nn.functional.softmax(output[0], dim=0)
+    # Make predictions
+    predictions = model.predict(img_array)
+    decoded_predictions = decode_predictions(predictions, top=10)[0]
     
-    # Create results for all fruits we're tracking
+    # Filter and process results
     all_fruit_results = []
-    for fruit_name, idx in fruit_categories.items():
-        if idx < len(probabilities):
-            prob = probabilities[idx].item()
-            all_fruit_results.append((fruit_name.capitalize(), prob))
+    
+    # Extract all fruit predictions
+    for pred_id, pred_name, pred_score in decoded_predictions:
+        # Check if the prediction is in our fruit categories
+        for fruit_name, fruit_id in fruit_categories.items():
+            # Check if the prediction ID contains our fruit ID or if names match
+            if pred_id.startswith(fruit_id.split('n')[1]) or fruit_name.lower() in pred_name.lower():
+                all_fruit_results.append((fruit_name.capitalize(), float(pred_score)))
+                break
+    
+    # Add any missing fruits with 0 probability
+    found_fruits = [item[0].lower() for item in all_fruit_results]
+    for fruit_name in fruit_categories.keys():
+        if fruit_name not in found_fruits:
+            all_fruit_results.append((fruit_name.capitalize(), 0.0))
     
     # Sort by probability
     all_fruit_results.sort(key=lambda x: x[1], reverse=True)
