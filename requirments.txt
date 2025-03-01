@@ -1,6 +1,6 @@
-streamlit==1.30.0
-torch==2.1.2+cpu
-torchvision==0.16.2+cpu
--f https://download.pytorch.org/whl/torch_stable.html
-pillow==10.2.0
-numpy==1.26.3
+--find-links=https://download.pytorch.org/whl/torch_stable.html
+streamlit>=1.22.0
+torch==1.13.1+cpu
+torchvision==0.14.1+cpu
+pillow>=9.0.0
+numpy>=1.22.0
